@@ -217,10 +217,17 @@ class MTL(nn.Module):
 
     
     def evaluate(self, evaluate_dataloader):
+        with open(self.p.related_file_save_path+"evaluation_record.txt", 'w') as f:
+            pass
         self.eval()
         with torch.no_grad():
             total_triple_count = 0
             total_loss = 0.0
+
+            # 设置MRR阈值
+            mrr_threshold = 0.3
+            # 设置记录多少个样例
+            low_mrr_sample_count = 10
 
             metrics = {
                 Helper.CLASS_SUBSUMPTION: [0, 0, 0, 0],
@@ -236,6 +243,18 @@ class MTL(nn.Module):
                 Helper.INDIVIDUAL_OBJECT_PROPERTY: 0,
                 Helper.INDIVIDUAL_DATA_PROPERTY: 0
             }
+
+            # 加载entity_to_text_dict
+            with open(self.p.related_file_save_path + 'entity_to_text_dict.pkl', 'rb') as f:
+                entity_to_text_dict = pickle.load(f)
+
+            # 创建文件用于记录低MRR样例
+            low_mrr_file = open(self.p.related_file_save_path + "low_mrr_cases.txt", 'w', encoding='utf-8')
+            low_mrr_file.write(f"记录MRR < {mrr_threshold}的样例:\n")
+            low_mrr_file.write(f"格式: 任务类型 | 真实三元组 | 预测的前{low_mrr_sample_count}个结果(直到包含正确答案)\n\n")
+
+            # 打开评估记录文件用于追加
+            eval_record_file = open(self.p.related_file_save_path + "evaluation_record.txt", 'a', encoding='utf-8')
 
             for batch in tqdm(evaluate_dataloader, desc=f'Evaluating '):
 
@@ -253,7 +272,40 @@ class MTL(nn.Module):
                     max_entities = [candidate_entities_idx[index] for index in max_indices] 
 
                     rank = max_entities.index(ground_truth) + 1
-                    metrics[task_type][0] += 1.0 / rank
+                    mrr = 1.0 / rank
+                    
+                    
+                    # 记录MRR < mrr_threshold的样例
+                    if mrr < mrr_threshold:
+                        # 获取原始三元组
+                        head = self.idx2entity[samples[0][0].item()]
+                        head = entity_to_text_dict.get(head, head)
+                        rel = self.idx2relation[samples[0][1].item()]
+                        rel = entity_to_text_dict.get(rel, rel)
+                        tail = self.idx2entity[samples[0][2].item()]
+                        tail = entity_to_text_dict.get(tail, tail)
+                        
+                        low_mrr_file.write(f"任务类型: {Helper.task_name_dict[task_type]}\n")
+                        low_mrr_file.write(f"原始三元组: ({head}, {rel}, {tail})\n")
+                        low_mrr_file.write(f"MRR: {mrr:.4f}, 排名: {rank}\n")
+                        low_mrr_file.write("预测结果(直到正确答案):\n")
+                        
+                        # 记录从第一个预测到正确答案的所有预测
+                        # for idx, pred_entity in enumerate(max_entities[:rank]):
+                        for idx, pred_entity in enumerate(max_entities[:low_mrr_sample_count]):
+                            # score = max_scores[idx]
+                            # # 将预测的实体索引转换为可读的实体名称
+                            # pred_entity_name = self.idx2entity.get(pred_entity, pred_entity)
+                            # low_mrr_file.write(f"Top-{idx+1}: {pred_entity_name} (score: {score:.4f})\n")
+                            score = max_scores[idx]
+                            # 将预测的实体索引转换为URI，再转换为可读的文本
+                            pred_entity_uri = self.idx2entity.get(pred_entity, pred_entity)
+                            pred_entity_text = entity_to_text_dict.get(pred_entity_uri, pred_entity_uri)
+                            low_mrr_file.write(f"Top-{idx+1}: {pred_entity_text} (score: {score:.4f})\n")
+                        
+                        low_mrr_file.write("\n" + "="*50 + "\n\n")
+
+                    metrics[task_type][0] += mrr
                     metrics[task_type][1] += 1 if ground_truth in max_entities[:1] else 0
                     metrics[task_type][2] += 1 if ground_truth in max_entities[:5] else 0
                     metrics[task_type][3] += 1 if ground_truth in max_entities[:10] else 0
@@ -263,16 +315,34 @@ class MTL(nn.Module):
                     if total_triple_count % 5 == 0:
                         for key in metrics:
                             if sample_count[key] != 0:
-                                print(f"Task: {Helper.task_name_dict[key]}, {sample_count[key]} triples evaluated, MRR: {metrics[key][0]/sample_count[key]}, Hits@1: {metrics[key][1]/sample_count[key]}, Hits@5: {metrics[key][2]/sample_count[key]}, Hits@10: {metrics[key][3]/sample_count[key]}")
+                                result_str = f"Task: {Helper.task_name_dict[key]}, {sample_count[key]} triples evaluated, MRR: {metrics[key][0]/sample_count[key]}, Hits@1: {metrics[key][1]/sample_count[key]}, Hits@5: {metrics[key][2]/sample_count[key]}, Hits@10: {metrics[key][3]/sample_count[key]}"
+                                print(result_str)
+                                # 将结果追加到评估记录文件
+                                eval_record_file.write(result_str + "\n")
                             else:
-                                print(f"Task {Helper.task_name_dict[key]} did not have evaluated triples yet.")
+                                result_str = f"Task {Helper.task_name_dict[key]} did not have evaluated triples yet."
+                                print(result_str)
+                                # 将结果追加到评估记录文件
+                                eval_record_file.write(result_str + "\n")
                         
                         print()
+                        eval_record_file.write("\n")
+            
+            low_mrr_file.close()
             
             ## 计算全部测试样本指标
+            eval_record_file.write("\n最终评估结果:\n")
             for key in metrics:
                 if sample_count[key] != 0:
-                    print(f"Task: {Helper.task_name_dict[key]}, {sample_count[key]} triples evaluated, MRR: {metrics[key][0]/sample_count[key]}, Hits@1: {metrics[key][1]/sample_count[key]}, Hits@5: {metrics[key][2]/sample_count[key]}, Hits@10: {metrics[key][3]/sample_count[key]}")
+                    result_str = f"Task: {Helper.task_name_dict[key]}, {sample_count[key]} triples evaluated, MRR: {metrics[key][0]/sample_count[key]}, Hits@1: {metrics[key][1]/sample_count[key]}, Hits@5: {metrics[key][2]/sample_count[key]}, Hits@10: {metrics[key][3]/sample_count[key]}"
+                    print(result_str)
+                    # 将结果追加到评估记录文件
+                    eval_record_file.write(result_str + "\n")
                 else:
-                    print(f"Task {Helper.task_name_dict[key]} did not have evaluated triples yet.")
-                    
+                    result_str = f"Task {Helper.task_name_dict[key]} did not have evaluated triples yet."
+                    print(result_str)
+                    # 将结果追加到评估记录文件
+                    eval_record_file.write(result_str + "\n")
+            
+            # 关闭评估记录文件
+            eval_record_file.close()
