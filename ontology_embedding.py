@@ -21,6 +21,7 @@ from lib.Label import URI_parse, pre_process_words, label_item
 from lib.MTL_Datasets import MTL_Train_Dataset, MTL_Evaluate_Dataset, MTL_Valid_Dataset
 from transformers import AutoTokenizer, BertConfig, DataCollatorForLanguageModeling, BertForMaskedLM
 
+# 使用MiniLM-L6-V2代替Bert
 
 
 parser = argparse.ArgumentParser()

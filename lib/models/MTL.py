@@ -54,6 +54,11 @@ class MTL(nn.Module):
     def __init__(self, entity_embeddings, relation_embeddings, idx2entity, idx2relation, params=None, device="cpu"):
         super(MTL, self).__init__()
         self.p = params
+        
+        # 这里需要改成384
+        self.p.init_dim = 384
+        self.p.embed_dim = 384
+
         self.device = device
 
         self.entity_embeddings = torch.tensor(entity_embeddings).to(device)

@@ -7,7 +7,7 @@ import numpy as np
 from collections import defaultdict
 from rdflib.namespace import RDF, RDFS
 from sklearn.model_selection import train_test_split
-from transformers import BertTokenizer, BertForMaskedLM, BertConfig
+from transformers import BertTokenizer, BertForMaskedLM, BertConfig, AutoTokenizer, AutoModel
 
 
 class Helper(object):
@@ -193,15 +193,21 @@ class Helper(object):
     def knowledge_extraction(self, args, device):
         is_mean_pooling = args.is_mean_pooling
         related_file_save_path = args.related_file_save_path
+        # 使用MiniLM-L6-V2作为编码器
+        tokenizer = AutoTokenizer.from_pretrained('/home/cqjtu/LLMs/all-MiniLM-L6-v2')
+        model = AutoModel.from_pretrained('/home/cqjtu/LLMs/all-MiniLM-L6-v2')
+        model.to(device)
+        for param in model.parameters():
+            param.requires_grad = False
 
         ## 经过训练的BERT
-        bert_config = BertConfig.from_pretrained(related_file_save_path + args.lm_save_path + args.fine_tuned_lm)
-        bert_config.output_hidden_states = is_mean_pooling
-        tokenizer = BertTokenizer.from_pretrained(args.lm_file_path)
-        bert_model = BertForMaskedLM.from_pretrained(related_file_save_path + args.lm_save_path + args.fine_tuned_lm, config=bert_config).bert
-        bert_model.to(device)
-        for param in bert_model.parameters():
-            param.requires_grad = False
+        # bert_config = BertConfig.from_pretrained(related_file_save_path + args.lm_save_path + args.fine_tuned_lm)
+        # bert_config.output_hidden_states = is_mean_pooling
+        # tokenizer = BertTokenizer.from_pretrained(args.lm_file_path)
+        # bert_model = BertForMaskedLM.from_pretrained(related_file_save_path + args.lm_save_path + args.fine_tuned_lm, config=bert_config).bert
+        # bert_model.to(device)
+        # for param in bert_model.parameters():
+        #     param.requires_grad = False
 
         if args.ontology_name == "helis":
             ontology_suffix = ".xml"
@@ -254,7 +260,8 @@ class Helper(object):
             sample = " [SEP] ".join(sentences)
             inputs_ids = tokenizer.encode_plus(sample, return_tensors="pt", max_length=512)
             batch_encoding = inputs_ids['input_ids'].to(device)
-            outputs = bert_model(input_ids=batch_encoding)
+            # outputs = bert_model(input_ids=batch_encoding)
+            outputs = model(input_ids=batch_encoding, output_hidden_states=True)
             
             # 创建一个布尔张量，表示张量中是否与目标数字相等
             bool_tensor = torch.eq(batch_encoding[0], 102)
