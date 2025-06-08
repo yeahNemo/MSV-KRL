@@ -35,7 +35,7 @@ except FileNotFoundError:
 
 
 ontology_file_name_suffix = ".nt" if args.ontology_name in ["foodon", "go"] else ".xml"
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cuda:3" if torch.cuda.is_available() else "cpu"
 ontology_name = args.ontology_name
 ontology_file_path = args.ontology_file_path
 related_file_save_path = args.related_file_save_path
@@ -385,22 +385,106 @@ if step_option == "multi_task":
     print(f"End getting nodes and edges, nodes num: {len(nodes)}, edges num: {len(edges)}")
 
 
-    ## (3). Get BERT lexical info embeddings to init entity and relation embeddings
+    ## (3). Get embeddings to init entity and relation embeddings
     # Step 1: Get embeddings
-    print("Initial entity and property embeddings by pre-trained BERT ...")
-    with open(related_file_save_path + args.embeddings_save_file_name, 'rb') as f:
-        embedding_dict = pickle.load(f)
+    print("Initial entity and property embeddings...")
     
-    # Step 2: Generate nodes and edges init embedding
-    entity_embeddings = list()
-    relation_embeddings = list()
-    for node in nodes:
-        embedding = embedding_dict[node]
-        entity_embeddings.append(embedding)
-    for edge in edges:
-        embedding = embedding_dict[edge]
-        relation_embeddings.append(embedding)
-    print(f"Got init embeddings total num: {len(embedding_dict)}, nodes embedding num: {len(entity_embeddings)}, edges embedding num: {len(relation_embeddings)}")
+    # 检查是否使用EKIE训练的嵌入向量
+    use_ekie_embeddings = True  # 设置为True表示使用EKIE训练的嵌入向量
+    ekie_embeddings_path = args.ekie_embeddings_saved_path
+    
+    if use_ekie_embeddings and os.path.exists(ekie_embeddings_path):
+        print("使用EKIE训练的嵌入向量进行初始化...")
+        
+        # 加载EKIE训练的嵌入向量
+        entity_embeddings_path = os.path.join(ekie_embeddings_path, "trained_entity_embeddings.npy")
+        relation_embeddings_path = os.path.join(ekie_embeddings_path, "trained_relation_embeddings.npy")
+        concept_embeddings_path = os.path.join(ekie_embeddings_path, "trained_concept_embeddings.npy")
+        
+        # 加载ID映射
+        with open(os.path.join(ekie_embeddings_path, "entity2id.pkl"), 'rb') as f:
+            ekie_entity2id = pickle.load(f)
+        with open(os.path.join(ekie_embeddings_path, "relation2id.pkl"), 'rb') as f:
+            ekie_relation2id = pickle.load(f)
+        with open(os.path.join(ekie_embeddings_path, "concept2id.pkl"), 'rb') as f:
+            ekie_concept2id = pickle.load(f)
+            
+        # 加载嵌入向量
+        ekie_entity_embeddings = np.load(entity_embeddings_path)
+        ekie_relation_embeddings = np.load(relation_embeddings_path)
+        
+        # 创建节点和边的嵌入向量
+        entity_embeddings = []
+        relation_embeddings = []
+        
+        # 构建从EKIE ID到当前节点索引的映射
+        ekie_id_to_node = {}
+        for node_str, ekie_id in ekie_entity2id.items():
+            ekie_id_to_node[ekie_id] = node_str
+            
+        ekie_id_to_edge = {}
+        for rel_str, ekie_id in ekie_relation2id.items():
+            ekie_id_to_edge[ekie_id] = rel_str
+        
+        random_init_num = 0
+        # 为每个节点分配嵌入向量
+        for node in nodes:
+            # 检查节点是否在EKIE的实体映射中
+            if node in ekie_entity2id:
+                ekie_id = ekie_entity2id[node]
+                embedding = ekie_entity_embeddings[ekie_id]
+                entity_embeddings.append(embedding)
+            else:
+                # 如果节点不在EKIE的实体映射中，使用BERT嵌入或随机初始化
+                if 'embedding_dict' in locals() and node in embedding_dict:
+                    embedding = embedding_dict[node]
+                    entity_embeddings.append(embedding)
+                else:
+                    # 随机初始化
+                    random_embedding = np.random.uniform(-0.1, 0.1, args.embed_dim)
+                    entity_embeddings.append(random_embedding)
+                    print(f"节点 {node} 不在EKIE实体映射中，使用随机初始化")
+                    random_init_num += 1
+        # 将random_init_num写入文件 0 个
+        with open("./random_init_num.txt", "w") as f:
+            f.write('不在EKIE实体映射中，使用随机初始化个数：'+str(random_init_num))
+
+        
+        # 为每个边分配嵌入向量
+        for edge in edges:
+            # 检查边是否在EKIE的关系映射中
+            if edge in ekie_relation2id:
+                ekie_id = ekie_relation2id[edge]
+                embedding = ekie_relation_embeddings[ekie_id]
+                relation_embeddings.append(embedding)
+            else:
+                # 如果边不在EKIE的关系映射中，使用BERT嵌入或随机初始化
+                if 'embedding_dict' in locals() and edge in embedding_dict:
+                    embedding = embedding_dict[edge]
+                    relation_embeddings.append(embedding)
+                else:
+                    # 随机初始化
+                    random_embedding = np.random.uniform(-0.1, 0.1, args.embed_dim)
+                    relation_embeddings.append(random_embedding)
+                    print(f"边 {edge} 不在EKIE关系映射中，使用随机初始化")
+        
+        print(f"使用EKIE嵌入初始化完成，节点嵌入数量: {len(entity_embeddings)}, 边嵌入数量: {len(relation_embeddings)}")
+    else:
+        # 使用原始的BERT嵌入初始化方法
+        print("使用BERT嵌入进行初始化...")
+        with open(related_file_save_path + args.embeddings_save_file_name, 'rb') as f:
+            embedding_dict = pickle.load(f)
+        
+        # Step 2: Generate nodes and edges init embedding
+        entity_embeddings = []
+        relation_embeddings = []
+        for node in nodes:
+            embedding = embedding_dict[node]
+            entity_embeddings.append(embedding)
+        for edge in edges:
+            embedding = embedding_dict[edge]
+            relation_embeddings.append(embedding)
+        print(f"使用BERT嵌入初始化完成，总嵌入数量: {len(embedding_dict)}, 节点嵌入数量: {len(entity_embeddings)}, 边嵌入数量: {len(relation_embeddings)}")
 
 
     ## (4). Process origin triple, generate training data and initialize data

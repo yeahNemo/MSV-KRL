@@ -8,6 +8,7 @@ class Subgraph(object):
         self.graph = rdflib.Graph()
         self.graph.parse(rdf_file_path)
 
+        self.all_relation_graph = rdflib.Graph()  # 所有关系
         self.sub_class_of_graph = rdflib.Graph()    # 类层次关系--subClassOf
         self.class_props_graph = rdflib.Graph()     # 类之间的对象属性和数据属性关系
         self.class_type_graph = rdflib.Graph()      # 实例的类型--type
@@ -30,6 +31,7 @@ class Subgraph(object):
                 self.obj_props_graph.add((s, p, o))
             if str(p) in data_props and str(s) in individuals:
                 self.data_props_graph.add((s, p, o))
+            self.all_relation_graph.add((s, p, o))
 
         # 便于人工查找问题
         self.sub_class_of_graph.serialize(subgraph_save_path+'subclassof.nt', format='nt')
@@ -37,6 +39,7 @@ class Subgraph(object):
         self.class_type_graph.serialize(subgraph_save_path+'ind_type.nt', format='nt')
         self.obj_props_graph.serialize(subgraph_save_path+'obj_props.nt', format='nt')
         self.data_props_graph.serialize(subgraph_save_path+'data_props.nt', format='nt')
+        self.all_relation_graph.serialize(subgraph_save_path+'all_relation.nt', format='nt')
 
         # 用于数据处理
         self.sub_class_of_graph.serialize(subgraph_save_path+'subclassof.xml', format='xml')
@@ -44,6 +47,7 @@ class Subgraph(object):
         self.class_type_graph.serialize(subgraph_save_path+'ind_type.xml', format='xml')
         self.obj_props_graph.serialize(subgraph_save_path+'obj_props.xml', format='xml')
         self.data_props_graph.serialize(subgraph_save_path+'data_props.xml', format='xml')
+        self.all_relation_graph.serialize(subgraph_save_path+'all_relation.xml', format='xml')
 
 
     
